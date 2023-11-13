@@ -212,6 +212,7 @@ class SimpleLinearRegression:
         print("The H0 hypothesis b0 = 0 is: {}".format("REJECTED" if hypothesis_intercept else "NOT REJECTED"), end="\n\n")
 
         print("#------------------------------------------------------------------")
+        print("Testing hypothesis H0: b1 = 0...")
         print("The value of the t-statistic with {} degrees of freedom is: {:.2f}".format(self.n - 2, t_statistc_b1))
         print("The 0.025 quantile of the t-distribution with {} degrees of freedom is: {:.2f}".format(self.n - 2, threshold))
         print("The 0.975 quantile of the t-distribution with {} degrees of freedom is: {:.2f}".format(self.n - 2, -threshold))
