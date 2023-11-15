@@ -24,6 +24,8 @@ class SimpleLinearRegression:
         self.SSRes = self.SST - self._slope * self.Sxy
         self.SSR = self.SST - self.SSRes
         self.MSRes = self.SSRes / (self.n - 2)
+        self.SEb1 = np.sqrt(self.MSRes / self.Sxx)
+        self.SEb0 = np.sqrt(self.MSRes * (1 / self.n + np.mean(self.x)**2 / self.Sxx))
 
 
     def __repr__(self) -> str:
@@ -55,8 +57,7 @@ class SimpleLinearRegression:
         """
         t-test to check if the hypothesis H0: b1 = 0 is true or not
         """
-
-        self.SEb1 = np.sqrt(self.MSRes / self.Sxx)
+        
         t_stat = self._slope / self.SEb1
         # find the 0.025 and 0.975 quantiles of the t-distribution with n-2 degrees of freedom
 
@@ -124,11 +125,10 @@ class SimpleLinearRegression:
         Creates the 100(1-alpha)% confidence interval for the intercept parameter b1.
         """
 
-        SEb1 = np.sqrt(self.MSRes / self.Sxx)
         t_value = t.ppf(alpha/2, self.n - 2)
 
-        lower_bound = self._slope - abs(t_value) * SEb1
-        upper_bound = self._slope + abs(t_value) * SEb1
+        lower_bound = self._slope - abs(t_value) * self.SEb1
+        upper_bound = self._slope + abs(t_value) * self.SEb1
 
         return (lower_bound, upper_bound)
     
@@ -138,11 +138,11 @@ class SimpleLinearRegression:
         Creates the 100(1-alpha)% confidence interval for the intercept parameter b0.
         """
 
-        SEb0 = np.sqrt(self.MSRes * (1 / self.n + np.mean(self.x)**2 / self.Sxx))
+        
         t_value = abs(t.ppf(alpha/2, self.n - 2))
 
-        lower_bound = self._intercept - t_value * SEb0
-        upper_bound = self._intercept + t_value * SEb0
+        lower_bound = self._intercept - t_value * self.SEb0
+        upper_bound = self._intercept + t_value * self.SEb0
 
         return (lower_bound, upper_bound)
 
@@ -245,24 +245,66 @@ class SimpleLinearRegression:
         plt.show()
 
     
-    def plot_mean_response_confidence_interval(self, x0: float, x_axis_name: str = "Independent variable", y_axis_name: str = "Dependent variable", title: str="Mean response confidence interval"):
+    def plot_mean_response_confidence_area(self, alpha: float = 0.05, x_axis_name: str = "Independent variable", y_axis_name: str = "Dependent variable", title: str="Mean response confidence interval"):
         """
-        Plots the x, and y data in a scatter plot, and adds the confidence interval for the mean response at x=x0
+        Plots the x, and y data in a scatter plot, and adds the confidence interval for the given alpha, over the entire range of x.
         """
+
+        min_x = np.min(self.x)
+        max_x = np.max(self.x)
+        x_range = np.linspace(min_x, max_x, 100)
+
+        lower_limits = []
+        upper_limits = []
+
+        for x in x_range:
+            ll, ul = self.mean_response_confidence_interval(x, alpha)
+            lower_limits.append(ll)
+            upper_limits.append(ul)
 
         plt.figure(figsize=(10, 6))
         plt.scatter(self.x, self.y, color="black", label="Data")
 
-        lower_bound, upper_bound = self.mean_response_confidence_interval(x0)
+        plt.plot(x_range, lower_limits, linestyle="--", color="green", label="Mean response interval boundary (alpha = {})".format(alpha))
+        plt.plot(x_range, upper_limits, linestyle="--", color="green")
 
-        plt.axhline(y=lower_bound, color="orange", label="Lower bound for mean response at x={}".format(x0))
-        plt.axhline(y=upper_bound, color="orange", label="Upper bound for mean response at x={}".format(x0))
-        plt.axvline(x=x0, color="red", label="x={}".format(x0))
         plt.xlabel(x_axis_name)
         plt.ylabel(y_axis_name)
         plt.title(title)
         plt.legend()
         plt.show()
+
+
+    def plot_prediction_confidence_area(self, alpha: float = 0.05, x_axis_name: str = "Independent variable", y_axis_name = "Dependent variable", title: str = "Prediction intervals"):
+        """
+        Plots the x, and y data in a scatter plot, and adds the prediction interval (for given alpha), over the entire range of x.
+        """
+        
+        min_x = np.min(self.x)
+        max_x = np.max(self.x)
+        x_range = np.linspace(min_x, max_x, 100)
+
+        lower_limits = []
+        upper_limits = []
+
+        for x in x_range:
+            ll, ul = self.prediction_confidence_interval(x, alpha)
+            lower_limits.append(ll)
+            upper_limits.append(ul)
+
+        plt.figure(figsize=(10, 6))
+        plt.scatter(self.x, self.y, color="black", label="Data")
+
+        plt.plot(x_range, lower_limits, linestyle="--", color="purple", label="Prediction interval boundary (alpha = {})".format(alpha))
+        plt.plot(x_range, upper_limits, linestyle="--", color="purple")
+
+        plt.xlabel(x_axis_name)
+        plt.ylabel(y_axis_name)
+        plt.title(title)
+        plt.legend()
+        plt.show()
+
+
 
 
 
@@ -277,7 +319,7 @@ class MultipleLinearRegression:
         self.X = np.hstack((np.ones((X.shape[0], 1)), X))
         self.y = y
         self.n = len(y)
-        self.p = X.shape[1]
+        self.p = self.X.shape[1]
 
         self._parameters = self._fit()
 
@@ -306,13 +348,25 @@ class MultipleLinearRegression:
 
         return estimated_model_parameters
     
+    def _standard_errors(self) -> np.array:
+        """
+        Calculates the standard errors for the estimated parameters, and returns them as a numpy array.
+        """
+
+        return np.sqrt(self.MSRes * np.diag(self.C))
+    
+
+
 
     def predict(self, x: np.array) -> float:
         """
         Returns the predicted value for y at x.
+        Appends a 1 to the beginning of x, to account for the intercept.
         """
 
-        return np.dot(x, self._parameters)
+        x_with_intercept = np.array([1] + list(x))
+
+        return np.dot(x_with_intercept, self._parameters)
     
 
     def __repr__(self) -> str:
@@ -323,7 +377,7 @@ class MultipleLinearRegression:
         model_repr = "Multiple linear regression model trained on {} observations with {} parameters.".format(self.n, self.p)
         model_repr += "\nThe estimated parameters are: \n"
         for i in range(len(self._parameters)):
-            model_repr += "   - b{}: {:.2f}\n".format(i, self._parameters[i])
+            model_repr += "   - b{}: {:.4f}\n".format(i, self._parameters[i])
     
         return model_repr
 
@@ -441,8 +495,10 @@ class MultipleLinearRegression:
         """
 
         # calculate mean response as the dot product of x and the estimated parameters
-        mean_response = np.dot(x, self._parameters)
+        mean_response = self.predict(x)
         t_boundary = abs(t.ppf(alpha / 2, self.n - self.p))
+
+        x = np.array([1] + list(x))
 
         temp = self.MSRes * np.dot(np.matmul(x, self.C), x.T)
 
@@ -452,7 +508,7 @@ class MultipleLinearRegression:
         return (lower_bound, upper_bound)
 
 
-    def regressor_parameter_confidence_interval(self, j: int, alpha: float) -> tuple:
+    def regressor_parameter_confidence_interval(self, j: int, alpha: float = 0.05) -> tuple:
         """
         Constructs the 100(1-alpha)% confidence interval for the parameter = parameter, which can be one of the 
         following values: b0, b1, sigma2. 
@@ -478,6 +534,7 @@ class MultipleLinearRegression:
         """
 
         # calculate mean response as the dot product of x and the estimated parameters
+        x = np.array([1] + list(x))
         mean_response = np.dot(x, self._parameters)
         t_boundary = abs(t.ppf(alpha / 2, self.n - self.p))
 
@@ -498,8 +555,8 @@ if __name__ == "__main__":
     number_cases = [7, 3, 3, 4, 6, 7, 2, 7, 30, 5, 16, 10, 4, 6, 9, 10, 6, 7, 3, 17, 10, 26, 9, 8, 4]
     distances = [560, 220, 340, 80, 150, 330, 110, 210, 1460, 605, 688, 215, 255, 462, 448, 776, 200, 132, 36, 770, 140, 810, 450, 635, 150]
 
-    X = np.array([np.ones(len(delivery_times)), number_cases, distances]).T
+    X = np.array([number_cases, distances]).T
     y = np.array(delivery_times)
 
     model = MultipleLinearRegression(X, y)
-    model.analysis_of_variance()
+    print(model._standard_errors())
