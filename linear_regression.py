@@ -485,6 +485,54 @@ class MultipleLinearRegression:
         return 1 - temp
     
 
+    def contribution_set_of_regressors(self, indices: list, alpha: float = 0.05, verbose: bool = False) -> float:
+        """
+        Performs the F test to see if the regressors indicated by the indices list contribute significantly to the model.
+        Returns the value of the F statistic.
+        It calculates the residual sum of squares for the model without the regressors in the indices list, and subtracts it from the
+        residual sum of squares of the full model.
+        """
+
+        r = len(indices)
+        indices_extended = indices + [0]
+
+        X_simple_model = np.delete(self.X, indices_extended, axis=1)
+        simple_model = MultipleLinearRegression(X_simple_model, self.y)
+
+        difference_SSR = self.SSR - simple_model.SSR
+
+        F_statistic = (difference_SSR / r) / self.MSRes
+
+        F_distribution_boundary = f.ppf(1 - alpha, r, self.n - self.p)
+
+        report = "Testing the overall significance of the regressors with indices: {}...\n\n".format(indices)
+        report += "H0: bi=0 for all i in {}\n".format(indices)
+        report += "The residual sum of squares for the full model is: {:.2f}\n".format(self.SSR)
+        report += "The residual sum of squares for the simple model is: {:.2f}\n".format(simple_model.SSR)
+        report += "The difference in residual sum of squares is: {:.2f}\n".format(difference_SSR)
+        report += "The F statistic is: {:.2f}\n".format(F_statistic)
+        report += "For alpha = {}, the 0.95 quantile of the F distribution with {} and {} degrees of freedom is: {:.2f}\n".format(alpha, r, self.n - self.p, F_distribution_boundary)
+        DECISION = "REJECTED" if F_statistic > F_distribution_boundary else "NOT REJECTED"
+        report += "The H0 hypothesis is: {}".format(DECISION)
+
+        if verbose:
+            print(report)
+
+        plt.figure(figsize=(10, 6))
+        x = np.linspace(0, 10, 100)
+        plt.plot(x, f.pdf(x, r, self.n - self.p), color="black", label="F(r, n-p)")
+
+        plt.axvline(x=F_statistic, color="orange", label="F-statistic")
+        plt.axvline(x=F_distribution_boundary, color="red", label="0.95 quantile")
+
+        plt.legend()
+        plt.show()
+
+
+
+        return F_statistic
+
+
     # -------------------------------------------------------------
     # Confidence intervals
     # -------------------------------------------------------------
@@ -555,8 +603,10 @@ if __name__ == "__main__":
     number_cases = [7, 3, 3, 4, 6, 7, 2, 7, 30, 5, 16, 10, 4, 6, 9, 10, 6, 7, 3, 17, 10, 26, 9, 8, 4]
     distances = [560, 220, 340, 80, 150, 330, 110, 210, 1460, 605, 688, 215, 255, 462, 448, 776, 200, 132, 36, 770, 140, 810, 450, 635, 150]
 
-    X = np.array([number_cases, distances]).T
-    y = np.array(delivery_times)
+    X_data = np.array([number_cases, distances]).T
+    y_data = np.array(delivery_times)
 
-    model = MultipleLinearRegression(X, y)
-    print(model._standard_errors())
+    model = MultipleLinearRegression(X_data, y_data)
+    f = model.contribution_set_of_regressors([2], verbose = True)
+
+    
