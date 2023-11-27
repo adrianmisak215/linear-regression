@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 from scipy.stats import t, f
 import matplotlib.pyplot as plt
 
@@ -219,6 +220,54 @@ class SimpleLinearRegression:
         print("The H0 hypothesis b1 = 0 is: {}".format("REJECTED" if hypothesis_slope else "NOT REJECTED"))
 
     
+    def residual_analysis(self):
+        """
+            Prepares a pd.DataFrame with training data (x, y), and adds columns for different residuals:
+                - regular, standardized, studentized, and R-studentized residuals.
+        """
+
+        leverage = self.calculate_leverage()
+
+        df = pd.DataFrame({"x": self.x, "y": self.y})
+        df["y_predicted"] = self.predict(self.x)
+        df["residual"] = self.y - df["y_predicted"]
+        df["standardized_residual"] = df["residual"] / np.sqrt(self.MSRes)
+        df["studentized_residual"] = df["residual"] / np.sqrt(self.MSRes * (1 - leverage))
+
+        var_est = (self.n-2) * self.MSRes - df["residual"]**2 / (1 - leverage)
+        var_est = var_est * (1 / (self.n-3))
+
+        df["R_studentized_residual"] = df["residual"] / np.sqrt(var_est * (1 - leverage))
+
+
+        return df
+    
+    def calculate_leverage(self):
+        """
+        Calculates the leverage for each observation, which can be used in residual analysis, for PRESS 
+        and R-studentized residuals.
+        """
+
+        X = np.hstack((np.ones((self.n, 1)), self.x.reshape(-1, 1)))
+
+        H = np.matmul(np.matmul(X, np.linalg.inv(np.matmul(X.T, X))), X.T)
+
+        return np.diag(H)
+    
+
+    @property
+    def PRESS(self):
+        """
+        Calculates the PRESS statistic of the model.
+        """
+
+        leverage = self.calculate_leverage()
+
+        return np.sum((self.y - self.predict(self.x))**2 / (1 - leverage))
+
+
+
+
     # -------------------------------------------------------------
     # Visualization
     # -------------------------------------------------------------
@@ -304,13 +353,63 @@ class SimpleLinearRegression:
         plt.legend()
         plt.show()
 
+    def plot_normality_diagnostic(self):
+        """
+        Plots the R-studentized residuals against the theoretical quantiles of the standard normal distribution.
+        """
+
+        r_studentized_residuals = np.sort(self.residual_analysis()["R_studentized_residual"].values)
+        theoretical_points = [(i-0.5) / self.n for i in range(1, self.n+1)]
+
+        plt.figure(figsize=(10, 6))
+        plt.scatter(r_studentized_residuals, theoretical_points, color="black", label="R-studentized residuals")
+
+        plt.xlabel("R-studentized residuals")
+        plt.ylabel("Theoretical quantiles")
+        plt.legend()
+
+        plt.show()
+
+
+    def plot_residuals_against_fitted_values(self):
+        """
+        Scatter plot of fitted values (x-axis) against R-studentized residuals (y-axis).
+        """
+
+        fitted_values = self.predict(self.x)
+        r_studentized_residuals = self.residual_analysis()["R_studentized_residual"].values
+
+        plt.figure(figsize=(10, 6))
+        plt.scatter(fitted_values, r_studentized_residuals, color="black", label="R-studentized residuals")
+
+        plt.xlabel("Fitted values")
+        plt.ylabel("R-studentized residuals")
+        plt.legend()
+
+        plt.show()
+
+    def plot_residuals_against_regressor(self):
+        """
+        Scatter plot of regressor values (x-axis) against R-studentized residuals (y-axis).
+        """
+
+        r_studentized_residuals = self.residual_analysis()["R_studentized_residual"].values
+
+        plt.figure(figsize=(10, 6))
+        plt.scatter(self.x, r_studentized_residuals, color="black", label="R-studentized residuals")
+
+        plt.xlabel("Regressor values")
+        plt.ylabel("R-studentized residuals")
+        plt.legend()
+
+        plt.show()
 
 
 
 
 class MultipleLinearRegression:
 
-    def __init__(self, X: np.array, y: np.array):
+    def __init__(self, X: np.array, y: np.array, labels: list = []):
         """
         Initializes the MultipleLinearRegression class, and automatically trains to fit the data.
         """
@@ -320,6 +419,11 @@ class MultipleLinearRegression:
         self.y = y
         self.n = len(y)
         self.p = self.X.shape[1]
+        
+        if labels != []:
+            self.labels = ["intercept"] + labels
+        else:
+            self.labels = ["intercept"] + ["x{}".format(i) for i in range(1, self.p)]
 
         self._parameters = self._fit()
 
@@ -376,8 +480,9 @@ class MultipleLinearRegression:
 
         model_repr = "Multiple linear regression model trained on {} observations with {} parameters.".format(self.n, self.p)
         model_repr += "\nThe estimated parameters are: \n"
-        for i in range(len(self._parameters)):
-            model_repr += "   - b{}: {:.4f}\n".format(i, self._parameters[i])
+
+        for name, value in zip(self.labels, self._parameters):
+            model_repr += "   - {}: {:.4f}\n".format(name, value)
     
         return model_repr
 
@@ -438,11 +543,11 @@ class MultipleLinearRegression:
 
         for ind in range(len(self._parameters)):
             print("#------------------------------------------------------------------")
-            print("Running the t-test for significance of parameter b{}...".format(ind))
+            print("Running the t-test for significance of parameter {}...".format(self.labels[ind]))
             print("   - value of t statistic: ", t_values[ind])
             print("   - value of t statistic boundary: ", t_value_boundary)
             result = "REJECTED" if t_test_results[ind] else "NOT REJECTED"
-            print("   - H0 hypothesis b{} = 0 is: {}".format(ind, result), end="\n\n")
+            print("   - H0 hypothesis b{} ({}) = 0 is: {}".format(ind, self.labels[ind], result), end="\n\n")
 
      
 
@@ -533,6 +638,59 @@ class MultipleLinearRegression:
         return F_statistic
 
 
+    def residual_analysis(self) -> pd.DataFrame:
+        """
+        Performs residual analysis on the model, and returns a pd.DataFrame with the following columns:
+            - y: the actual values of the dependent variable
+            - y_predicted: the predicted values of the dependent variable
+            - leverage: the leverage for each observation
+            - residual: the residual for each observation
+            - standardized_residual: the standardized residual for each observation
+            - studentized_residuals: the studentized residual for each observation
+            - R_studentized_residual: the R-studentized residual for each observation
+        All values are floats, and the data is presented in a pd.DataFrame.
+        """
+
+        df = pd.DataFrame()
+        
+
+        fitted_values = np.matmul(self.X, self._parameters)
+        leverage = self.calculate_leverage()
+        individual_variance_estimates = ((self.n - self.p) * self.MSRes - (self.y - fitted_values)**2 / (1 - leverage)) / (self.n - self.p - 1)
+
+        df["y"] = self.y
+        df["y_predicted"] = fitted_values
+        df["leverage"] = leverage
+        df["residual"] = df["y"] - df["y_predicted"]
+        df["standardized_residual"] = df["residual"] / np.sqrt(self.MSRes)
+        df["studentized_residuals"] = df["residual"] / np.sqrt(self.MSRes * (1 - leverage))
+        df["R_studentized_residual"] = df["residual"] / np.sqrt(individual_variance_estimates * (1 - leverage))
+
+        return df
+    
+    def calculate_leverage(self):
+        """
+        Calculates the leverage for each observation, which can be used in residual analysis, for PRESS 
+        and R-studentized residuals.
+        """
+
+        H = np.matmul(np.matmul(self.X, np.linalg.inv(np.matmul(self.X.T, self.X))), self.X.T)
+
+        return np.diag(H)
+    
+    @property
+    def PRESS(self):
+        """
+        Calculates the PRESS statistic of the model.
+        """
+
+        df = self.residual_analysis()
+        residuals = df["residual"].values
+        leverage = df["leverage"].values
+
+        return np.sum((residuals / (1 - leverage))**2)
+
+
     # -------------------------------------------------------------
     # Confidence intervals
     # -------------------------------------------------------------
@@ -592,6 +750,95 @@ class MultipleLinearRegression:
         upper_bound = mean_response + t_boundary * np.sqrt(temp)
 
         return (lower_bound, upper_bound)
+    
+    # -------------------------------------------------------------
+    # Visualization
+    # -------------------------------------------------------------
+
+    def normality_diagnostic(self):
+        """
+        Plots the R-studentized residuals against the theoretical quantiles of the standard normal distribution.
+        """
+
+        r_studentized_residuals = np.sort(self.residual_analysis()["R_studentized_residual"].values)
+        theoretical_points = [(i-0.5) / self.n for i in range(1, self.n+1)]
+
+        plt.figure(figsize=(10, 6))
+        plt.scatter(r_studentized_residuals, theoretical_points, color="black", label="R-studentized residuals")
+
+        plt.xlabel("R-studentized residuals")
+        plt.ylabel("Theoretical quantiles")
+        plt.legend()
+
+        plt.show()
+
+
+    def plot_residuals_against_fitted_values(self):
+        """
+        Scatter plot of fitted values (x-axis) against R-studentized residuals (y-axis).
+        """
+
+        fitted_values = np.matmul(self.X, self._parameters)
+        r_studentized_residuals = self.residual_analysis()["R_studentized_residual"].values
+
+        plt.figure(figsize=(10, 6))
+        plt.scatter(fitted_values, r_studentized_residuals, color="black", label="R-studentized residuals")
+
+        plt.xlabel("Fitted values")
+        plt.ylabel("R-studentized residuals")
+        plt.legend()
+
+        plt.show()
+
+    def plot_residuals_against_regressor(self, j: int):
+        """
+        Scatter plot of regressor values for j-th regressor (x-axis) against R-studentized residuals (y-axis).
+        """
+
+        r_studentized_residuals = self.residual_analysis()["R_studentized_residual"].values
+
+        plt.figure(figsize=(10, 6))
+        plt.scatter(self.X[:, j], r_studentized_residuals, color="black", label="R-studentized residuals")
+
+        plt.xlabel("Regressor values")
+        plt.ylabel("R-studentized residuals")
+
+        plt.legend()
+
+        plt.show()
+
+
+    def plot_partial_residuals(self, j: int):
+        """
+        Builds a SimpleLinear Regression model with j-th regressor against y-values to calculate residuals,
+        and a MultipleLinearRegression model fitting other regressors against the j-th regressor, to calculate residuals on the j-th regressor (partial residuals).
+        Plots the partial residuals against the j-th regressor.
+        """
+
+        x_simple = self.X[:, j]
+        y_simple = self.y
+
+        simple_model = SimpleLinearRegression(x_simple, y_simple)
+        residuals_simple = simple_model.residual_analysis()["residual"].values
+
+        x_multiple = np.delete(self.X, j, axis=1)
+        y_multiple = self.X[:, j]
+
+        mlr_model = MultipleLinearRegression(x_multiple, y_multiple)
+        residuals_multiple = mlr_model.residual_analysis()["residual"].values
+
+        plt.figure(figsize=(10, 6))
+
+        plt.scatter(residuals_simple, residuals_multiple, color="black", label="Partial residuals")
+
+        plt.xlabel("Simple regression residuals")
+        plt.ylabel("Multiple regression residuals")
+
+        plt.legend()
+
+        plt.show()
+        
+
 
         
 
@@ -603,10 +850,17 @@ if __name__ == "__main__":
     number_cases = [7, 3, 3, 4, 6, 7, 2, 7, 30, 5, 16, 10, 4, 6, 9, 10, 6, 7, 3, 17, 10, 26, 9, 8, 4]
     distances = [560, 220, 340, 80, 150, 330, 110, 210, 1460, 605, 688, 215, 255, 462, 448, 776, 200, 132, 36, 770, 140, 810, 450, 635, 150]
 
-    X_data = np.array([number_cases, distances]).T
-    y_data = np.array(delivery_times)
 
-    model = MultipleLinearRegression(X_data, y_data)
-    f = model.contribution_set_of_regressors([2], verbose = True)
+    model = MultipleLinearRegression(np.array([number_cases, distances]).T, np.array(delivery_times), labels=["number of cases", "distance"])
+    # model.plot_partial_residuals(j=1)
+    print(model.PRESS)
+
+    
+    # df = pd.read_csv("datasets/b1.csv")
+    # x_data = df["x8"].values
+    # y_data = df["y"].values
+
+    # model = SimpleLinearRegression(x_data, y_data)
+    # model.plot_residuals_against_regressor()
 
     
